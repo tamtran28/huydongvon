@@ -2,202 +2,179 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from io import BytesIO
-from datetime import datetime
+import datetime
 
-# =============================================================
-# HÀM XUẤT EXCEL
-# =============================================================
-def to_excel(df, sheet_name="Sheet1"):
-    output = BytesIO()
-    writer = pd.ExcelWriter(output, engine="xlsxwriter")
-    df.to_excel(writer, index=False, sheet_name=sheet_name)
-    writer.close()
-    return output.getvalue()
+st.set_page_config(page_title="HDV Dashboard", layout="wide")
 
-
-# =============================================================
-# HÀM ĐỌC FILE EXCEL KHÔNG CẦN XLRD
-# → Tất cả .xls và .xlsx đều đọc bằng openpyxl
-# =============================================================
-def read_excel_auto(file, usecols=None, dtype=str):
-    try:
-        return pd.read_excel(file, usecols=usecols, dtype=dtype, engine="openpyxl")
-    except Exception as e:
-        st.error("❌ Không đọc được file Excel. Vui lòng mở file rồi Save As → .xlsx")
-        st.error(str(e))
-        st.stop()
+# ==========================
+#      HÀM TẢI FILE
+# ==========================
+def download_excel(df, filename):
+    buffer = BytesIO()
+    df.to_excel(buffer, index=False)
+    buffer.seek(0)
+    st.download_button(
+        label="📥 Tải xuống " + filename,
+        data=buffer,
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 
-# =============================================================
-# GIAO DIỆN
-# =============================================================
-st.title("📊 HỆ THỐNG HDV – TC1 / TC2 / TC3 (No-XLRD Version)")
-st.markdown("Phiên bản an toàn – không dùng xlrd – chạy ổn định trên Streamlit Cloud.")
+st.title("📊 HỆ THỐNG KIỂM TRA HDV – STREAMLIT (3 TAB)")
 
-tab1, tab2, tab3 = st.tabs([
-    "🔵 TC1 – HDV / FTP / Thực trả",
-    "🟡 TC2 – Xếp hạng KH",
-    "🟣 TC3 – Gửi rút 1–7 ngày"
-])
 
-# =============================================================
-# ----------------------------- TC1 ----------------------------
-# =============================================================
+# ================================================================
+#                           TAB MENU
+# ================================================================
+tab1, tab2, tab3 = st.tabs(["📌 TIÊU CHÍ 1", "📌 TIÊU CHÍ 2", "📌 TIÊU CHÍ 3"])
+
+
+
+# ================================================================
+#                           TAB 1
+# ================================================================
 with tab1:
-    st.header("🔵 TC1 – Ghép HDV – FTP – Lãi suất thực trả")
+    st.header("📌 TIÊU CHÍ 1 – HDV CKH + FTP + LS THỰC TRẢ")
 
-    hdv_files = st.file_uploader("📂 Upload file HDV", accept_multiple_files=True)
-    ftp_files = st.file_uploader("📂 Upload file FTP", accept_multiple_files=True)
-    tt_file = st.file_uploader("📂 Upload file Lãi suất thực trả", accept_multiple_files=False)
+    hdv_files = st.file_uploader("📁 Tải các file HDV CKH (*.xls)", type=['xls', 'xlsx'], accept_multiple_files=True)
+    ftp_files = st.file_uploader("📁 Tải các file FTP (*.xls)", type=['xls','xlsx'], accept_multiple_files=True)
+    tt_file = st.file_uploader("📁 Tải file Lãi suất thực trả", type=['xls','xlsx'])
 
-    chi_nhanh_tc1 = st.text_input("Nhập SOL (VD: 001 hoặc HANOI):").strip().upper()
+    chi_nhanh_tc1 = st.text_input("🔍 Nhập mã SOL hoặc tên chi nhánh", "").upper().strip()
 
-    if st.button("🚀 Chạy TC1"):
+    if st.button("🚀 Chạy TIÊU CHÍ 1"):
+        if not (hdv_files and ftp_files and tt_file):
+            st.error("⚠ Vui lòng tải đầy đủ 3 loại file!")
+        else:
+            # Xử lý như TC1
+            cols_ckh = ['BRCD','DEPTCD','CUST_TYPE','NMLOC','CUSTSEQ','BIRTH_DAY','IDXACNO',
+                        'SCHM_NAME','TERM_DAYS','GL_SUB','CCYCD','CURBAL_NT','CURBAL_VN',
+                        'OPNDT_FIRST','OPNDT_EFFECT','MATDT','LS_GHISO','LS_CONG_BO',
+                        'PROMO_CD','KH_VIP','CIF_OPNDT','DP_MTHS','DP_DAYS','PROMO_NM','PHANKHUC_KH']
 
-        if not hdv_files or not ftp_files or not tt_file:
-            st.error("⚠ Thiếu file đầu vào!")
-            st.stop()
+            df_ckh = pd.concat([pd.read_excel(f, dtype=str)[cols_ckh] for f in hdv_files], ignore_index=True)
 
-        cols_ckh = [
-            'BRCD','DEPTCD','CUST_TYPE','NMLOC','CUSTSEQ','BIRTH_DAY','IDXACNO',
-            'SCHM_NAME','TERM_DAYS','GL_SUB','CCYCD','CURBAL_NT','CURBAL_VN',
-            'OPNDT_FIRST','OPNDT_EFFECT','MATDT','LS_GHISO','LS_CONG_BO',
-            'PROMO_CD','KH_VIP','CIF_OPNDT','DP_MTHS','DP_DAYS','PROMO_NM','PHANKHUC_KH'
-        ]
+            cols_ftp = ['CUSTSEQ','NMLOC','IDXACNO','KY_HAN','LS_FTP']
+            df_ftp = pd.concat([pd.read_excel(f, dtype=str)[cols_ftp] for f in ftp_files], ignore_index=True)
 
-        df_ckh = pd.concat(
-            [read_excel_auto(f, usecols=cols_ckh) for f in hdv_files],
-            ignore_index=True
-        )
+            df_filtered = df_ckh[df_ckh['BRCD'].str.upper().str.contains(chi_nhanh_tc1)]
 
-        cols_ftp = ['CUSTSEQ','NMLOC','IDXACNO','KY_HAN','LS_FTP']
-        df_ftp = pd.concat(
-            [read_excel_auto(f, usecols=cols_ftp) for f in ftp_files],
-            ignore_index=True
-        )
+            df_tt = pd.read_excel(tt_file, dtype=str).rename(
+                columns={'Số tài khoản':'IDXACNO','Lãi suất thực trả':'LS_THUC_TRA'}
+            )
 
-        df_tt = read_excel_auto(tt_file, usecols=['Số tài khoản','Lãi suất thực trả'])
-        df_tt.columns = ['IDXACNO','LS_THUC_TRA']
-        df_tt['IDXACNO'] = df_tt['IDXACNO'].astype(str)
+            df_merge = df_filtered.merge(df_ftp[['IDXACNO','LS_FTP']].drop_duplicates(), on="IDXACNO", how="left")
+            df_merge = df_merge.merge(df_tt, on="IDXACNO", how="left")
 
-        df_fil = df_ckh[df_ckh['BRCD'].str.upper().str.contains(chi_nhanh_tc1)]
+            df_merge["LSGS ≠ LSCB"] = (df_merge["LS_GHISO"] != df_merge["LS_CONG_BO"]).map({True:"X",False:""})
+            df_merge["Không có LS trình duyệt"] = df_merge["LS_THUC_TRA"].isna().map({True:"X",False:""})
 
-        df_ftp2 = df_ftp[['IDXACNO','LS_FTP']].drop_duplicates()
-        df_merge = df_fil.merge(df_ftp2, on="IDXACNO", how="left")
-        df_merge = df_merge.merge(df_tt, on="IDXACNO", how="left")
+            df_merge["LSGS > FTP"] = (
+                df_merge["LS_GHISO"].astype(float) > df_merge["LS_FTP"].astype(float)
+            ).map({True:"X",False:""})
 
-        df_merge['LSGS ≠ LSCB'] = (df_merge['LS_GHISO'] != df_merge['LS_CONG_BO']).map({True:'X',False:''})
-        df_merge['Không có LS trình duyệt'] = df_merge['LS_THUC_TRA'].isna().map({True:'X',False:''})
+            st.success("✔ Tiêu chí 1 hoàn tất!")
+            st.dataframe(df_merge.head())
 
-        def to_float(x):
-            try: return float(str(x).replace(',',''))
-            except: return np.nan
-
-        df_merge['LSGS_NUM'] = df_merge['LS_GHISO'].apply(to_float)
-        df_merge['FTP_NUM'] = df_merge['LS_FTP'].apply(to_float)
-
-        df_merge['LSGS > FTP'] = (
-            df_merge['LSGS_NUM'].notna() &
-            df_merge['FTP_NUM'].notna() &
-            (df_merge['LSGS_NUM'] > df_merge['FTP_NUM'])
-        ).map({True:'X',False:''})
-
-        df_merge.drop(columns=['LSGS_NUM','FTP_NUM'], inplace=True)
-
-        st.success("🎉 TC1 hoàn tất!")
-        st.dataframe(df_merge.head(30))
-
-        st.download_button("⬇ Tải TC1.xlsx", data=to_excel(df_merge), file_name="TC1.xlsx")
+            download_excel(df_merge, "TC1.xlsx")
 
 
-# =============================================================
-# ----------------------------- TC2 ----------------------------
-# =============================================================
+
+# ================================================================
+#                           TAB 2
+# ================================================================
 with tab2:
-    st.header("🟡 TC2 – Xếp hạng KH")
+    st.header("📌 TIÊU CHÍ 2 – Xếp hạng KH theo số dư")
 
-    ckh_files = st.file_uploader("📂 Upload file CKH", accept_multiple_files=True, key="tc2_ckh")
-    kkh_files = st.file_uploader("📂 Upload file KKH", accept_multiple_files=True, key="tc2_kkh")
+    ckh_tc2 = st.file_uploader("📁 Tải file HDV CHI TIẾT CKH", type=['xls','xlsx'], accept_multiple_files=True)
+    kkh_tc2 = st.file_uploader("📁 Tải file HDV CHI TIẾT KKH", type=['xls','xlsx'], accept_multiple_files=True)
 
-    chi_nhanh_tc2 = st.text_input("Nhập SOL TC2:").strip().upper()
+    chi_nhanh_tc2 = st.text_input("🔍 Nhập mã SOL hoặc tên chi nhánh (TC2)", "").upper().strip()
 
-    if st.button("🚀 Chạy TC2"):
+    if st.button("🚀 Chạy TIÊU CHÍ 2"):
+        if not (ckh_tc2 and kkh_tc2):
+            st.error("⚠ Vui lòng tải file CKH và KKH!")
+        else:
+            cols_needed = [
+                'BRCD','DEPTCD','CUST_TYPE','CUSTSEQ','NMLOC','BIRTH_DAY','IDXACNO',
+                'SCHM_NAME','TERM_DAYS','GL_SUB','CCYCD','CURBAL_NT','CURBAL_VN',
+                'OPNDT_FIRST','OPNDT_EFFECT','MATDT','LS_GHISO','LS_CONG_BO','PROMO_CD',
+                'KH_VIP','CIF_OPNDT'
+            ]
 
-        if not ckh_files or not kkh_files:
-            st.error("⚠ Thiếu file CKH hoặc KKH!")
-            st.stop()
+            df_ckh2 = pd.concat([pd.read_excel(f, dtype=str)[cols_needed] for f in ckh_tc2], ignore_index=True)
+            df_kkh2 = pd.concat([pd.read_excel(f, dtype=str)[cols_needed] for f in kkh_tc2], ignore_index=True)
 
-        cols_needed = [
-            'BRCD','DEPTCD','CUST_TYPE','CUSTSEQ','NMLOC','BIRTH_DAY','IDXACNO',
-            'SCHM_NAME','TERM_DAYS','GL_SUB','CCYCD','CURBAL_NT','CURBAL_VN',
-            'OPNDT_FIRST','OPNDT_EFFECT','MATDT','LS_GHISO','LS_CONG_BO',
-            'PROMO_CD','KH_VIP','CIF_OPNDT'
-        ]
+            df_all = pd.concat([df_ckh2, df_kkh2], ignore_index=True)
+            df_filtered = df_all[df_all["BRCD"].str.upper().str.contains(chi_nhanh_tc2)]
 
-        df_ckh2 = pd.concat([read_excel_auto(f)[cols_needed] for f in ckh_files], ignore_index=True)
-        df_kkh2 = pd.concat([read_excel_auto(f)[cols_needed] for f in kkh_files], ignore_index=True)
+            df_filtered["CURBAL_VN"] = pd.to_numeric(df_filtered["CURBAL_VN"], errors='coerce')
 
-        df_ckh2 = df_ckh2[df_ckh2['BRCD'].str.upper().str.contains(chi_nhanh_tc2)]
-        df_kkh2 = df_kkh2[df_kkh2['BRCD'].str.upper().str.contains(chi_nhanh_tc2)]
+            df_sum = df_filtered.groupby("CUSTSEQ", as_index=False)["CURBAL_VN"].sum().rename(columns={"CURBAL_VN":"SỐ DƯ"})
+            df_tonghop = df_filtered.drop_duplicates("CUSTSEQ").merge(df_sum, on="CUSTSEQ", how="left")
 
-        df = pd.concat([df_ckh2, df_kkh2], ignore_index=True)
+            today = pd.Timestamp.today().normalize()
+            df_tonghop["BIRTH_DAY"] = pd.to_datetime(df_tonghop["BIRTH_DAY"], errors='coerce')
 
-        df['CURBAL_VN'] = pd.to_numeric(df['CURBAL_VN'].str.replace(',',''), errors='coerce')
+            mask = df_tonghop["CUST_TYPE"]=="KHCN"
+            df_tonghop.loc[mask,"ĐỘ TUỔI"] = df_tonghop.loc[mask,"BIRTH_DAY"].apply(
+                lambda x: today.year - x.year - ((today.month, today.day) < (x.month, x.day)) if pd.notnull(x) else None
+            )
 
-        df_sum = df.groupby('CUSTSEQ', as_index=False)['CURBAL_VN'].sum()
-        df_sum.columns = ['CUSTSEQ','SỐ DƯ']
+            df_tonghop["RANK_RAW"] = df_tonghop.groupby("CUST_TYPE")["SỐ DƯ"].rank(method="min", ascending=False)
 
-        df2 = df.drop_duplicates(subset='CUSTSEQ').merge(df_sum, on='CUSTSEQ')
+            for t in ["KHDN","KHCN"]:
+                for n in [10,15,20]:
+                    df_tonghop[f"TOP{n}_{t}"] = df_tonghop.apply(lambda x: "X" if x["CUST_TYPE"]==t and x["RANK_RAW"]<=n else "", axis=1)
 
-        df2['BIRTH_DAY'] = pd.to_datetime(df2['BIRTH_DAY'], errors='coerce', dayfirst=True)
+            df_tonghop["RANK"] = df_tonghop["RANK_RAW"].apply(lambda x: int(x) if x<=20 else "")
 
-        today = pd.Timestamp.today()
-        df2['ĐỘ TUỔI'] = df2.apply(
-            lambda r: today.year - r['BIRTH_DAY'].year if (r['CUST_TYPE']=='KHCN' and pd.notnull(r['BIRTH_DAY'])) else None,
-            axis=1
-        )
+            df_final = df_tonghop.rename(columns={
+                "BRCD":"SOL","CUST_TYPE":"LOAI KH","CUSTSEQ":"CIF","NMLOC":"HO TEN",
+                "BIRTH_DAY":"NGAY SINH/NGAY TL","KH_VIP":"KH VIP"
+            })
 
-        df2['RANK'] = df2.groupby('CUST_TYPE')['SỐ DƯ'].rank(method='min', ascending=False)
+            st.success("✔ Tiêu chí 2 hoàn tất!")
+            st.dataframe(df_final.head())
 
-        st.success("🎉 TC2 hoàn tất!")
-        st.dataframe(df2.head(30))
-
-        st.download_button("⬇ Tải TC2.xlsx", data=to_excel(df2), file_name="TC2.xlsx")
+            download_excel(df_final, "TC2.xlsx")
 
 
-# =============================================================
-# ----------------------------- TC3 ----------------------------
-# =============================================================
+
+# ================================================================
+#                           TAB 3
+# ================================================================
 with tab3:
-    st.header("🟣 TC3 – Gửi rút 1–7 ngày")
+    st.header("📌 TIÊU CHÍ 3 – Giao dịch tiền gửi rút")
 
-    tc3_file = st.file_uploader("📂 Upload file TC3 (MỤC 11-4)", accept_multiple_files=False)
-    sol = st.text_input("Nhập SOL TC3:").strip().upper()
+    tc3_file = st.file_uploader("📁 Tải file giao dịch (Mục 11)", type=['xls','xlsx'])
+    chi_nhanh_tc3 = st.text_input("🔍 Nhập mã SOL hoặc tên chi nhánh (TC3)", "").upper().strip()
 
-    if st.button("🚀 Chạy TC3"):
+    if st.button("🚀 Chạy TIÊU CHÍ 3"):
+        if not tc3_file:
+            st.error("⚠ Vui lòng tải file TC3!")
+        else:
+            df = pd.read_excel(tc3_file, dtype=str)
 
-        df = read_excel_auto(tc3_file, dtype=str)
+            df["NGAY_HACH_TOAN"] = pd.to_datetime(df["NGAY_HACH_TOAN"], errors='coerce')
+            df["ACCT_OPN_DATE"] = pd.to_datetime(df["ACCT_OPN_DATE"], errors='coerce')
+            df["PART_CLOSE_AMT"] = pd.to_numeric(df["PART_CLOSE_AMT"], errors='coerce')
 
-        df = df[df['SOL_ID'].str.upper().str.contains(sol)]
+            df = df[df["SOL_ID"].str.upper().str.contains(chi_nhanh_tc3)]
 
-        df['NGAY_HACH_TOAN'] = pd.to_datetime(df['NGAY_HACH_TOAN'], errors='coerce')
-        df['ACCT_OPN_DATE'] = pd.to_datetime(df['ACCT_OPN_DATE'], errors='coerce')
-        df['PART_CLOSE_AMT'] = pd.to_numeric(df['PART_CLOSE_AMT'].str.replace(',',''), errors='coerce')
+            df["CHENH_LECH_NGAY"] = (df["NGAY_HACH_TOAN"] - df["ACCT_OPN_DATE"]).dt.days
 
-        df['CHENH_LECH_NGAY'] = (df['NGAY_HACH_TOAN'] - df['ACCT_OPN_DATE']).dt.days
+            df["MO_RUT_CUNG_NGAY"] = df["CHENH_LECH_NGAY"].apply(lambda x: "X" if x==0 else "")
+            df["MO_RUT_1_3_NGAY"] = df["CHENH_LECH_NGAY"].apply(lambda x: "X" if 0<x<=3 else "")
+            df["MO_RUT_4_7_NGAY"] = df["CHENH_LECH_NGAY"].apply(lambda x: "X" if 4<=x<=7 else "")
+            df["GD_LON_HON_1TY"] = df["PART_CLOSE_AMT"].apply(lambda x: "X" if x>1_000_000_000 else "")
 
-        df['MO_RUT_CUNG_NGAY'] = df['CHENH_LECH_NGAY'].apply(lambda x: 'X' if x == 0 else '')
-        df['MO_RUT_1_3_NGAY'] = df['CHENH_LECH_NGAY'].apply(lambda x: 'X' if 0 < x <= 3 else '')
-        df['MO_RUT_4_7_NGAY'] = df['CHENH_LECH_NGAY'].apply(lambda x: 'X' if 4 <= x <= 7 else '')
+            today = pd.Timestamp.today().normalize()
+            df["TRONG_THOI_HIEU_CAMERA"] = df["NGAY_HACH_TOAN"].apply(lambda x: "X" if (today-x).days<=90 else "")
 
-        df['GD_LON_HON_1TY'] = df['PART_CLOSE_AMT'].apply(lambda x: 'X' if x > 1_000_000_000 else '')
+            st.success("✔ Tiêu chí 3 hoàn tất!")
+            st.dataframe(df.head())
 
-        today = pd.to_datetime(datetime.today().date())
-        df['TRONG_THOI_HIEU_CAMERA'] = df['NGAY_HACH_TOAN'].apply(
-            lambda x: 'X' if pd.notna(x) and (today - x).days <= 90 else ''
-        )
+            download_excel(df, "TC3.xlsx")
 
-        st.success("🎉 TC3 hoàn tất!")
-        st.dataframe(df.head(20))
-
-        st.download_button("⬇ Tải TC3.xlsx", data=to_excel(df), file_name="TC3.xlsx")

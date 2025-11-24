@@ -2,5 +2,6 @@ streamlit
 pandas
 numpy
 openpyxl
+xlrd
 xlsxwriter
-xlrd==1.2.0
+python-dateutil
